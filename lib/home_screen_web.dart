@@ -3,13 +3,14 @@
 import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:assignment_flutter/add_widgets_screen.dart';
 import 'package:assignment_flutter/common_widgets/common_widgets.dart';
 import 'package:assignment_flutter/main.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 class DataModel {
   final String id;
@@ -27,56 +28,60 @@ class DataModel {
   }
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class HomeScreenWeb extends StatefulWidget {
+  const HomeScreenWeb({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreenWeb> createState() => _HomeScreenWebState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenWebState extends State<HomeScreenWeb> {
   final TextEditingController textController = TextEditingController();
-  final String id = "";
-  File? _selectedImage;
-  // ignore: prefer_typing_uninitialized_variables
-  var imageUrl;
+  String base64String = '';
   final FirebaseFirestore db = FirebaseFirestore.instance;
+  bool tapped = false;
 
-  @override
-  void dispose() {
-    super.dispose();
-    textController.dispose();
-  }
+  Future<void> pickImage() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+      );
 
-  Future<void> _pickImage() async {
-    final pickedFile =
-        await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() {
-        _selectedImage = File(pickedFile.path);
-      });
+      if (result != null) {
+        // Check if the app is running on web
+        if (result.files.single.bytes != null) {
+          Uint8List fileBytes = result.files.single.bytes!;
+          base64String = base64Encode(fileBytes);
+          log('Base64 String: $base64String');
+        } else {
+          String? filePath = result.files.single.path;
+          if (filePath != null) {
+            Uint8List fileBytes = await File(filePath).readAsBytes();
+            base64String = base64Encode(fileBytes);
+            log('Base64 String: $base64String');
+          }
+        }
+      } else {
+        log('User canceled the picker');
+      }
+    } catch (e) {
+      log(e.toString());
     }
-    log(_selectedImage.toString());
-  }
-
-  void _getImageBase64() async {
-    imageUrl = base64Encode(await _selectedImage!.readAsBytes());
-    log(imageUrl);
   }
 
   void _saveDatatoToFirebase() async {
     log("Saving Data");
     String text = textController.text;
 
-    if (text.isNotEmpty || _selectedImage != null) {
+    if (text.isNotEmpty || base64String != "") {
       try {
         String id = db.collection('textEntries').doc().id;
-        DataModel data = DataModel(imageUrl, id: id, text: text);
+        DataModel data = DataModel(base64String, id: id, text: text);
         await db.collection('textEntries').doc(id).set(data.toJson());
         showSnackBar(context: context, content: "Data saved successfully!");
         textController.clear();
         setState(() {
-          _selectedImage = null;
+          base64String = "";
         });
       } catch (e) {
         showSnackBar(context: context, content: 'Failed to save data: $e');
@@ -160,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                               SizedBox(height: 20),
                                               isImageSelected
                                                   ? InkWell(
-                                                      onTap: _pickImage,
+                                                      onTap: pickImage,
                                                       child: SizedBox(
                                                         child: Container(
                                                           color: Colors
@@ -211,13 +216,20 @@ class _HomeScreenState extends State<HomeScreen> {
                                         });
                                   });
                             }),
-                        InkWell(
-                          onTap: () {
-                            log('tapped');
-                            _getImageBase64();
-                          },
-                          child: Text('data'),
-                        ),
+
+                        // To test whether the image is being displayed or not
+                        // InkWell(
+                        //   onTap: () {
+                        //     setState(() {
+                        //       tapped = true;
+                        //     });
+                        //   },
+                        //   child: Text('data'),
+                        // ),
+                        // if (tapped == true)
+                        //   Container(
+                        //     child: displayImageFromBase64(),
+                        //   ),
                       ],
                     ),
                   ),
@@ -235,10 +247,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 },
               ),
+              SizedBox(height: 20),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Widget displayImageFromBase64() {
+    Uint8List imageBytes = base64Decode(base64String);
+    return Image.memory(imageBytes);
   }
 }
